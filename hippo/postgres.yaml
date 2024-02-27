@@ -1,0 +1,122 @@
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: hippo
+spec:
+  image: registry.crunchydata.com/crunchydata/crunchy-postgres:ubi8-16.1-0
+  port: 5432
+  postgresVersion: 16
+  paused: false
+  service:
+    type: LoadBalancer
+    metadata:
+      annotations:
+        #metallb.universe.tf/loadBalancerIPs: 192.168.1.100
+        external-dns.alpha.kubernetes.io/hostname: hippo.ranch.pacedata.local.
+  users:
+  - name: postgres
+  - name: appuser1
+  - name: appuser2
+  instances:
+    - name: 'pgc'
+      replicas: 2
+      dataVolumeClaimSpec:
+        accessModes:
+        - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: 5Gi
+
+  backups:
+    pgbackrest:
+      manual:
+        repoName: repo1
+        options:
+        - --type=incr
+      restore:
+        enabled: true
+        repoName: repo1
+      global:
+        archive-async: "y"
+        archive-copy: "y"
+        start-fast: "y"
+        log-level-console: info
+        repo1-retention-full: "14"
+        repo1-retention-full-type: time
+        process-max: "3"
+        spool-path: "/pgdata/spool"
+      image: registry.crunchydata.com/crunchydata/crunchy-pgbackrest:ubi8-2.47-2
+      repos:
+      - name: repo1
+        schedules:
+          full: "0 1 * * 0"
+          incremental: "0 1 * * 1-6"
+        volume:
+          volumeClaimSpec:
+            accessModes:
+            - "ReadWriteOnce"
+            resources:
+              requests:
+                storage: 2Gi
+
+  monitoring:
+    pgmonitor:
+      exporter:
+        image: registry.crunchydata.com/crunchydata/crunchy-postgres-exporter:ubi8-0.15.0-0
+
+  proxy:
+    pgBouncer: 
+      image: registry.crunchydata.com/crunchydata/crunchy-pgbouncer:ubi8-1.21-0
+      config:
+        global:
+          admin_users: _crunchypgbouncer
+          stats_users: _crunchypgbouncer
+          default_pool_size: "20"
+          pool_mode: transaction
+      # service:
+      #   type: LoadBalancer
+      #   files:
+      #     - configMap:
+      #         name: acctdev-pgbouncer-custom
+
+
+  patroni:
+    dynamicConfiguration:
+      failsafe_mode: true
+      postgresql:
+        parameters:
+          archive_timeout:  300
+          checkpoint_timeout: 1200
+          log_checkpoints: on
+          # log_connections: on
+          # log_disconnections: on
+          log_lock_waits: on
+          # log_temp_files: 0
+          log_autovacuum_min_duration: 0
+          log_error_verbosity: default
+          log_min_duration_statement: 5000
+          log_rotation_size: 0
+          logging_collector: "on"
+          log_line_prefix:  "%m [%p]: [%l-1] user=%u,db=%d,client=%h "
+          max_connections:  100
+          max_parallel_workers: 4
+          max_worker_processes: 4
+          min_wal_size: "512MB"
+          max_wal_size: "2048MB"
+          password_encryption: "scram-sha-256"
+          pgaudit.log: "role, ddl"
+          pg_stat_statements.max: 10000
+          shared_preload_libraries: 'pg_stat_statements'
+          shared_buffers: 512MB
+          superuser_reserved_connections: "6" 
+          stats_temp_directory: 'pg_stat_tmp'
+          track_activity_query_size: 4096
+          track_activities: on
+          track_counts: on
+          track_io_timing: on
+          track_wal_io_timing: on
+          track_functions: none
+          update_process_title: on
+          work_mem: 4MB
+ 
+  
